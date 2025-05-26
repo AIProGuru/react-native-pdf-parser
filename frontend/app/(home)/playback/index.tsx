@@ -101,6 +101,7 @@ const PlaybackScreen = () => {
     try {
       if (cameraRef.current) {
         cameraRef.current.stopRecording(); // this resolves the recordAsync promise
+        setRecording(false)
       }
     } catch (error) {
       console.error("Stop recording error:", error);
