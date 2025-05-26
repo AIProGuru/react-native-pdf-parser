@@ -433,6 +433,7 @@ const styles = StyleSheet.create({
   modalContainer: {
     flex: 1,
     padding: 20,
+    marginTop: 30,
     backgroundColor: 'white',
   },
   modalTitle: {

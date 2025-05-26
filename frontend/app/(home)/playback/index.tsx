@@ -1,12 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useAudioPlayer } from 'expo-audio';
+import { AudioPlayer, useAudioPlayer } from 'expo-audio';
 import { Button } from 'react-native-paper'; // Ensure react-native-paper is installed
 import { useRouter } from 'expo-router'; // or useNavigation if using React Navigation
 import { useVideoPlayer, VideoView } from 'expo-video'
-import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
+import { CameraView, CameraType, useCameraPermissions, Camera } from 'expo-camera';
+import { Ionicons } from '@expo/vector-icons';
+import { useEvent } from 'expo';
+import * as MediaLibrary from 'expo-media-library';
+
 
 
 import {
@@ -31,9 +35,22 @@ const PlaybackScreen = () => {
   const [showCamera, setShowCamera] = useState(false);
   const [facing, setFacing] = useState<CameraType>('back');
   const [permission, requestPermission] = useCameraPermissions();
+  const [recording, setRecording] = useState(false);
+  const [recordedUri, setRecordedUri] = useState<string | null>(null);
+  const [previewVisible, setPreviewVisible] = useState(false);
+
 
   const router = useRouter();
-  const player = useAudioPlayer(null);
+  const audioPlayer = useAudioPlayer(null);
+  const cameraRef = useRef<any>(null);
+  const videoPlayer = useVideoPlayer(recordedUri || '', player => {
+    player.loop = false;
+    player.pause(); // start paused
+  });
+  
+  const { isPlaying } = useEvent(videoPlayer, 'playingChange', {
+    isPlaying: videoPlayer.playing,
+  });
 
   useFocusEffect(
     useCallback(() => {
@@ -50,9 +67,9 @@ const PlaybackScreen = () => {
   const playAudio = async (url: string) => {
     try {
       const fullUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`;
-      player.pause();
-      player.replace(fullUrl);
-      player.play();
+      audioPlayer.pause();
+      audioPlayer.replace(fullUrl);
+      audioPlayer.play();
     } catch (error) {
       console.error('Audio playback error:', error);
     }
@@ -60,6 +77,37 @@ const PlaybackScreen = () => {
 
   const toggleCameraFacing = () => {
     setFacing((current) => (current === 'back' ? 'front' : 'back'));
+  };
+
+  const startRecording = async () => {
+    if (cameraRef.current) {
+      setRecording(true);
+      const video = await cameraRef.current.recordAsync();
+      console.log('Video recorded:', video.uri);
+      setRecording(false);
+    }
+  };
+
+  const stopRecording = async () => {
+    if (cameraRef.current) {
+      const recordingResult = await cameraRef.current.stopRecording();
+      setRecordedUri(recordingResult.uri);
+      setRecording(false);
+      setPreviewVisible(true);
+    }
+  };
+
+  const saveToGallery = async () => {
+    const { status } = await MediaLibrary.requestPermissionsAsync();
+    if (status === 'granted' && recordedUri) {
+      await MediaLibrary.saveToLibraryAsync(recordedUri);
+      Alert.alert('Saved!', 'Your video has been saved to camera roll.');
+      setPreviewVisible(false);
+      setRecordedUri(null);
+      setShowCamera(false);
+    } else {
+      Alert.alert('Permission denied', 'Cannot save to gallery.');
+    }
   };
 
   const characterNames = Array.from(new Set(audioDialogs.map((d) => d.name).filter(Boolean)));
@@ -135,20 +183,67 @@ const PlaybackScreen = () => {
 
           {/* Camera Modal */}
           <Modal visible={showCamera} animationType="slide">
-            <View style={styles.cameraWrapper}>
-              <CameraView style={StyleSheet.absoluteFill} facing={facing} />
+            <View style={styles.container}>
+              <CameraView ref={cameraRef} style={styles.camera} facing={facing} />
 
-              <View style={styles.overlayControls}>
-                <TouchableOpacity style={styles.flipButton} onPress={toggleCameraFacing}>
-                  <Text style={styles.text}>Flip</Text>
+              {!recording && (
+                <TouchableOpacity style={styles.backIcon} onPress={() => setShowCamera(false)}>
+                  <Ionicons name="arrow-back" size={28} color="gray" />
                 </TouchableOpacity>
+              )}
 
-                <TouchableOpacity style={styles.backButton} onPress={() => setShowCamera(false)}>
-                  <Text style={styles.text}>Back</Text>
+              {!recording && (
+                <TouchableOpacity style={styles.flipIcon} onPress={toggleCameraFacing}>
+                  <Ionicons name="camera-reverse-outline" size={28} color="gray" />
                 </TouchableOpacity>
-              </View>
+              )}
+
+              <TouchableOpacity
+                style={styles.recordButton}
+                onPress={recording ? stopRecording : startRecording}
+              >
+                <Ionicons
+                  name={recording ? "stop-circle" : "radio-button-on"}
+                  size={70}
+                  color="red"
+                />
+              </TouchableOpacity>
             </View>
           </Modal>
+          {previewVisible && recordedUri && (
+            <Modal visible={previewVisible} animationType="slide">
+              <View style={styles.container}>
+                <VideoView
+                  style={styles.previewVideo}
+                  player={videoPlayer}
+                  allowsFullscreen
+                  allowsPictureInPicture
+                />
+                <View style={styles.previewControls}>
+                  <Button
+                    mode="outlined"
+                    onPress={() => {
+                      setPreviewVisible(false);
+                      setShowCamera(true);
+                    }}
+                  >
+                    Retake
+                  </Button>
+                  <Button mode="contained" onPress={saveToGallery}>
+                    Save
+                  </Button>
+                  <Button
+                    onPress={() => {
+                      setPreviewVisible(false);
+                      setRecordedUri(null);
+                    }}
+                  >
+                    Discard
+                  </Button>
+                </View>
+              </View>
+            </Modal>
+          )}
         </>
       )}
     </ScrollView>
@@ -241,6 +336,53 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 10,
+  },
+
+  recordButtonContainer: {
+    position: 'absolute',
+    bottom: 40,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+
+  flipIcon: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    zIndex: 1,
+  },
+
+  backIcon: {
+    position: 'absolute',
+    top: 40,
+    left: 20,
+    zIndex: 1,
+  },
+
+  recordButton: {
+    position: 'absolute',
+    bottom: 40,
+    alignSelf: 'center',
+    zIndex: 1,
+  },
+
+  recordText: {
+    color: 'white',
+    fontSize: 32,
+    fontWeight: 'bold',
+  },
+  previewVideo: {
+    flex: 1,
+    width: '100%',
+    height: undefined,
+    aspectRatio: 16 / 9,
+  },
+  previewControls: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    padding: 16,
+    backgroundColor: '#fff',
   },
 
 });
