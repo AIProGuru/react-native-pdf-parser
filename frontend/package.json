@@ -18,6 +18,7 @@
     "@react-navigation/drawer": "^7.3.11",
     "@react-navigation/elements": "^2.3.8",
     "@react-navigation/native": "^7.1.6",
+    "@wdragon/react-native-voice": "^3.3.11",
     "expo": "~53.0.5",
     "expo-audio": "~0.4.5",
     "expo-auth-session": "~6.1.5",

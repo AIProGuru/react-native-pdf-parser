@@ -10,8 +10,11 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.SpeectToTextApp",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "This app uses the microphone for audio playback."
+        "NSMicrophoneUsageDescription": "This app uses the microphone for audio playback.",
+        "NSSpeechRecognitionUsageDescription": "This app uses speech recognition to convert your speech to text.",
+        "NSCameraUsageDescription": "This app uses the camera to let user put a photo in his profile page."
       }
     },
     "android": {
@@ -19,6 +22,8 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
+      "permissions": ["android.permission.RECORD_AUDIO"],
+      "package": "com.anonymous.SpeectToTextApp",
       "edgeToEdgeEnabled": true
     },
     "web": {
