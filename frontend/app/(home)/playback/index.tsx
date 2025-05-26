@@ -38,6 +38,8 @@ const PlaybackScreen = () => {
   const [recording, setRecording] = useState(false);
   const [recordedUri, setRecordedUri] = useState<string | null>(null);
   const [previewVisible, setPreviewVisible] = useState(false);
+  const [video, setVideo] = useState<{ uri: string } | undefined>(undefined);
+
 
 
   const router = useRouter();
@@ -80,31 +82,25 @@ const PlaybackScreen = () => {
   };
 
   const startRecording = async () => {
-    try {
-      if (cameraRef.current) {
-        setRecording(true);
-        const video = await cameraRef.current.recordAsync(); // waits until stopRecording is called
-        console.log("Video result", video); // ← this only logs after stopRecording
-        if (video?.uri) {
-          setRecordedUri(video.uri);
-          setPreviewVisible(true);
-        }
-        setRecording(false);
-      }
-    } catch (error) {
-      console.error("Recording error:", error);
-      setRecording(false);
+    setRecording(true); //Updates the recording state to true. This will also toggle record button to stop button.
+    if (cameraRef.current) {
+      cameraRef.current.recordAsync({ //cameraRef is a useRef hook pointing to the camera component. It provides access to the camera's methods, such as recordAsync. Starts recording a video and returns a Promise that resolves with the recorded video’s details.
+        maxDuration: 30, //Limits the recording duration to 30 seconds. After 30 seconds, the recording automatically stops, and the Promise resolves.
+      })
+        .then((newVideo) => { //The result of this Promise is an object (newVideo) containing information about the recorded video, such as the file's URI and other metadata. This callback runs when the recording completes successfully. 
+          setVideo(newVideo); // Stores the recorded video details in the state, which can later be used for playback, uploading, or other actions.
+          setRecording(false);
+        })
+      console.log("adsf", video?.uri)
     }
+
   };
 
   const stopRecording = () => {
-    try {
-      if (cameraRef.current) {
-        cameraRef.current.stopRecording(); // this resolves the recordAsync promise
-        setRecording(false)
-      }
-    } catch (error) {
-      console.error("Stop recording error:", error);
+    if (cameraRef.current) {
+      cameraRef.current?.stopRecording();
+      setRecording(false);
+      console.log("Recording stopped");
     }
   };
 
