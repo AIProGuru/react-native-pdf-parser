@@ -6,7 +6,7 @@ import { AudioPlayer, useAudioPlayer } from 'expo-audio';
 import { Button } from 'react-native-paper'; // Ensure react-native-paper is installed
 import { useRouter } from 'expo-router'; // or useNavigation if using React Navigation
 import { useVideoPlayer, VideoView } from 'expo-video'
-import { CameraView, CameraType, useCameraPermissions, Camera } from 'expo-camera';
+import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { useEvent } from 'expo';
 import * as MediaLibrary from 'expo-media-library';
@@ -42,12 +42,12 @@ const PlaybackScreen = () => {
 
   const router = useRouter();
   const audioPlayer = useAudioPlayer(null);
-  const cameraRef = useRef<any>(null);
+  const cameraRef = useRef<CameraView>(null);
   const videoPlayer = useVideoPlayer(recordedUri || '', player => {
     player.loop = false;
     player.pause(); // start paused
   });
-  
+
   const { isPlaying } = useEvent(videoPlayer, 'playingChange', {
     isPlaying: videoPlayer.playing,
   });
@@ -80,22 +80,33 @@ const PlaybackScreen = () => {
   };
 
   const startRecording = async () => {
-    if (cameraRef.current) {
-      setRecording(true);
-      const video = await cameraRef.current.recordAsync();
-      console.log('Video recorded:', video.uri);
+    try {
+      if (cameraRef.current) {
+        setRecording(true);
+        const video = await cameraRef.current.recordAsync(); // waits until stopRecording is called
+        console.log("Video result", video); // ← this only logs after stopRecording
+        if (video?.uri) {
+          setRecordedUri(video.uri);
+          setPreviewVisible(true);
+        }
+        setRecording(false);
+      }
+    } catch (error) {
+      console.error("Recording error:", error);
       setRecording(false);
     }
   };
 
-  const stopRecording = async () => {
-    if (cameraRef.current) {
-      const recordingResult = await cameraRef.current.stopRecording();
-      setRecordedUri(recordingResult.uri);
-      setRecording(false);
-      setPreviewVisible(true);
+  const stopRecording = () => {
+    try {
+      if (cameraRef.current) {
+        cameraRef.current.stopRecording(); // this resolves the recordAsync promise
+      }
+    } catch (error) {
+      console.error("Stop recording error:", error);
     }
   };
+
 
   const saveToGallery = async () => {
     const { status } = await MediaLibrary.requestPermissionsAsync();
