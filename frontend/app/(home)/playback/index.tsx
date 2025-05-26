@@ -39,6 +39,7 @@ const PlaybackScreen = () => {
   const [recordedUri, setRecordedUri] = useState<string | null>(null);
   const [previewVisible, setPreviewVisible] = useState(false);
   const [video, setVideo] = useState<{ uri: string } | undefined>(undefined);
+  const [cameraReady, setCameraReady] = useState(false);
 
 
 
@@ -82,18 +83,30 @@ const PlaybackScreen = () => {
   };
 
   const startRecording = async () => {
-    setRecording(true); //Updates the recording state to true. This will also toggle record button to stop button.
-    if (cameraRef.current) {
-      cameraRef.current.recordAsync({ //cameraRef is a useRef hook pointing to the camera component. It provides access to the camera's methods, such as recordAsync. Starts recording a video and returns a Promise that resolves with the recorded video’s details.
-        maxDuration: 30, //Limits the recording duration to 30 seconds. After 30 seconds, the recording automatically stops, and the Promise resolves.
-      })
-        .then((newVideo) => { //The result of this Promise is an object (newVideo) containing information about the recorded video, such as the file's URI and other metadata. This callback runs when the recording completes successfully. 
-          setVideo(newVideo); // Stores the recorded video details in the state, which can later be used for playback, uploading, or other actions.
-          setRecording(false);
-        })
-      console.log("adsf", video?.uri)
+    if (!cameraReady || !cameraRef.current) {
+      console.warn("Camera not ready");
+      return;
     }
 
+    try {
+      setRecording(true);
+      console.log("Recording started...");
+      const newVideo = await cameraRef.current.recordAsync({
+        maxDuration: 30,
+      });
+      console.log("Recording finished:", newVideo);
+
+      if (newVideo?.uri) {
+        setVideo(newVideo);
+        setRecordedUri(newVideo.uri);
+        setPreviewVisible(true);
+      }
+
+      setRecording(false);
+    } catch (error) {
+      console.error("Recording error:", error);
+      setRecording(false);
+    }
   };
 
   const stopRecording = () => {
@@ -192,7 +205,7 @@ const PlaybackScreen = () => {
           {/* Camera Modal */}
           <Modal visible={showCamera} animationType="slide">
             <View style={styles.container}>
-              <CameraView ref={cameraRef} style={styles.camera} facing={facing} />
+              <CameraView ref={cameraRef} style={styles.camera} facing={facing} onCameraReady={() => setCameraReady(true)} />
 
               {!recording && (
                 <TouchableOpacity style={styles.backIcon} onPress={() => setShowCamera(false)}>
