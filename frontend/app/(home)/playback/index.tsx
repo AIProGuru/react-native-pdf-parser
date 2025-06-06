@@ -10,13 +10,10 @@ import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { useEvent } from 'expo';
 import * as MediaLibrary from 'expo-media-library';
-import Voice, {
-  SpeechRecognizedEvent,
-  SpeechResultsEvent,
-  SpeechErrorEvent,
-} from '@wdragon/react-native-voice';
-
-
+import {
+  ExpoSpeechRecognitionModule,
+  useSpeechRecognitionEvent,
+} from "expo-speech-recognition";
 
 import {
   Alert,
@@ -45,39 +42,46 @@ const PlaybackScreen = () => {
   const [previewVisible, setPreviewVisible] = useState(false);
   const [video, setVideo] = useState<{ uri: string } | undefined>(undefined);
   const [cameraReady, setCameraReady] = useState(false);
-  const [speechResults, setSpeechResults] = useState<string[]>([]);
   const [isListening, setIsListening] = useState(false);
   const [speechError, setSpeechError] = useState('');
+  const transcriptTallyRef = useRef("");
 
+  const [transcript, setTranscript] = useState("");
+
+  useSpeechRecognitionEvent("start", () => {
+    transcriptTallyRef.current = "";
+    setTranscript("");
+    setIsListening(true)
+  });
+  useSpeechRecognitionEvent("end", () => setIsListening(false));
+  useSpeechRecognitionEvent("result", (ev) => {
+    const temp_transcript = ev.results[0]?.transcript || "";
+
+    if (ev.isFinal) {
+      transcriptTallyRef.current += temp_transcript;
+      console.log("transcript: ", transcriptTallyRef.current);
+      setTranscript(transcriptTallyRef.current);
+    } else {
+      console.log("transcript: ", transcriptTallyRef.current + temp_transcript);
+      setTranscript(transcriptTallyRef.current + temp_transcript);
+    }
+  });
+  useSpeechRecognitionEvent("error", (event) => {
+    console.log("error code:", event.error, "error message:", event.message);
+  });
 
 
   const router = useRouter();
   const audioPlayer = useAudioPlayer(null);
   const cameraRef = useRef<CameraView>(null);
   const videoPlayer = useVideoPlayer(recordedUri || '', player => {
-    player.loop = false;
-    player.pause(); // start paused
+    player.loop = true;
+    player.play(); // start paused
   });
 
   const { isPlaying } = useEvent(videoPlayer, 'playingChange', {
     isPlaying: videoPlayer.playing,
   });
-
-  useEffect(() => {
-    Voice.onSpeechResults = (e) => {
-      console.log('Speech results:', e.value);
-      setSpeechResults(e.value || []);
-    };
-
-    Voice.onSpeechError = (e) => {
-      console.error('Speech error:', e);
-      setSpeechError(JSON.stringify(e.error));
-    };
-
-    return () => {
-      Voice.destroy().then(Voice.removeAllListeners);
-    };
-  }, []);
 
 
   useFocusEffect(
@@ -93,24 +97,23 @@ const PlaybackScreen = () => {
   );
 
   const startListening = async () => {
-    try {
-      setSpeechError('');
-      setSpeechResults([]);
-      setIsListening(true);
-      await Voice.start('en-US');
-    } catch (e) {
-      console.error('Voice start error:', e);
-      setSpeechError('Failed to start voice recognition.');
+    const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+    if (!result.granted) {
+      console.warn("Permissions not granted", result);
+      return;
     }
+    ExpoSpeechRecognitionModule.start({
+      lang: "en-US",
+      interimResults: true,
+      continuous: true,
+      recordingOptions: {
+        persist: true,
+      },
+    });
   };
 
   const stopListening = async () => {
-    try {
-      setIsListening(false);
-      await Voice.stop();
-    } catch (e) {
-      console.error('Voice stop error:', e);
-    }
+    ExpoSpeechRecognitionModule.stop()
   };
 
   const playAudio = async (url: string) => {
@@ -137,9 +140,7 @@ const PlaybackScreen = () => {
     try {
       setRecording(true);
       console.log("Recording started...");
-      const newVideo = await cameraRef.current.recordAsync({
-        maxDuration: 30,
-      });
+      const newVideo = await cameraRef.current.recordAsync();
       console.log("Recording finished:", newVideo);
 
       if (newVideo?.uri) {
@@ -156,7 +157,7 @@ const PlaybackScreen = () => {
   };
 
   const stopRecording = () => {
-    if (cameraRef.current) {
+    if (cameraRef.current && recording) {
       cameraRef.current.stopRecording();
       setRecording(false);
     }
@@ -207,7 +208,7 @@ const PlaybackScreen = () => {
             >
               {isListening ? 'Stop' : 'Testing'}
             </Button>
-            {speechResults.length > 0 && (
+            {/* {speechResults.length > 0 && (
               <View style={{ marginTop: 10 }}>
                 <Text>Transcription:</Text>
                 {speechResults.map((text, idx) => (
@@ -216,7 +217,7 @@ const PlaybackScreen = () => {
                   </Text>
                 ))}
               </View>
-            )}
+            )} */}
 
             {speechError ? <Text style={{ color: 'red' }}>{speechError}</Text> : null}
 
@@ -270,7 +271,14 @@ const PlaybackScreen = () => {
           {/* Camera Modal */}
           <Modal visible={showCamera} animationType="slide">
             <View style={styles.container}>
-              <CameraView ref={cameraRef} style={styles.camera} facing={facing} onCameraReady={() => setCameraReady(true)} />
+              <CameraView
+                ref={cameraRef}
+                mode='video'
+                style={styles.camera}
+                facing={facing}
+                videoStabilizationMode="standard"
+                onCameraReady={() => setCameraReady(true)}
+              />
 
               {!recording && (
                 <TouchableOpacity style={styles.backIcon} onPress={() => setShowCamera(false)}>
@@ -453,6 +461,13 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
 
+  playButton: {
+    position: 'absolute',
+    bottom: 40,
+    alignSelf: 'center',
+    zIndex: 1,
+  },
+
   recordText: {
     color: 'white',
     fontSize: 32,
@@ -462,7 +477,6 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     height: undefined,
-    aspectRatio: 16 / 9,
   },
   previewControls: {
     flexDirection: 'row',
