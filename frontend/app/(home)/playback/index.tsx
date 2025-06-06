@@ -25,7 +25,9 @@ import {
   TouchableOpacity,
   FlatList,
   Modal,
-  ScrollView
+  ScrollView,
+  NativeSyntheticEvent,
+  NativeScrollEvent
 } from 'react-native';
 
 const BASE_URL = 'http://170.130.55.121:5000';
@@ -45,8 +47,13 @@ const PlaybackScreen = () => {
   const [isListening, setIsListening] = useState(false);
   const [speechError, setSpeechError] = useState('');
   const transcriptTallyRef = useRef("");
-
+  const scrollViewRef = useRef<ScrollView>(null);
+  const [isScrolling, setIsScrolling] = useState(false);
   const [transcript, setTranscript] = useState("");
+  const [recordingStartInterval, setRecordingStartInterval] = useState(3);
+  const [isRecordingStartIntervalShow, setIsRecordingStartIntervalShow] = useState(false);
+  const scrollAnimationFrame = useRef<number | null>(null);
+  const currentScrollY = useRef(0);
 
   useSpeechRecognitionEvent("start", () => {
     transcriptTallyRef.current = "";
@@ -138,7 +145,15 @@ const PlaybackScreen = () => {
     }
 
     try {
+      setIsRecordingStartIntervalShow(true);
       setRecording(true);
+      for (let i = 3; i >= 0; i--) {
+        setRecordingStartInterval(i);
+        await new Promise(res => setTimeout(res, 1000)); // wait 1 sec
+      }
+      setIsRecordingStartIntervalShow(false);
+      setRecordingStartInterval(3);
+      startAutoScroll();
       console.log("Recording started...");
       const newVideo = await cameraRef.current.recordAsync();
       console.log("Recording finished:", newVideo);
@@ -150,6 +165,7 @@ const PlaybackScreen = () => {
       }
 
       setRecording(false);
+      stopAutoScroll();
     } catch (error) {
       console.error("Recording error:", error);
       setRecording(false);
@@ -159,7 +175,10 @@ const PlaybackScreen = () => {
   const stopRecording = () => {
     if (cameraRef.current && recording) {
       cameraRef.current.stopRecording();
+      stopAutoScroll();
       setRecording(false);
+      setIsRecordingStartIntervalShow(false);
+      setRecordingStartInterval(3);
     }
   };
 
@@ -178,6 +197,34 @@ const PlaybackScreen = () => {
   };
 
   const characterNames = Array.from(new Set(audioDialogs.map((d) => d.name).filter(Boolean)));
+
+  const handleTelePromptScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    currentScrollY.current = event.nativeEvent.contentOffset.y;
+  }
+
+  const startAutoScroll = () => {
+    if (isScrolling) return;
+
+    setIsScrolling(true);
+
+    const step = () => {
+      currentScrollY.current += 1; // Scroll 1 pixel per frame
+      scrollViewRef.current?.scrollTo({
+        y: currentScrollY.current,
+        animated: false,
+      });
+      scrollAnimationFrame.current = requestAnimationFrame(step);
+    };
+    scrollAnimationFrame.current = requestAnimationFrame(step);
+  };
+
+  const stopAutoScroll = () => {
+    setIsScrolling(false);
+    if (scrollAnimationFrame.current) {
+      cancelAnimationFrame(scrollAnimationFrame.current);
+      scrollAnimationFrame.current = null;
+    }
+  };
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16 }}>
@@ -292,7 +339,28 @@ const PlaybackScreen = () => {
                 </TouchableOpacity>
               )}
 
-              <TouchableOpacity
+              <ScrollView
+                style={styles.telePrompt}
+                ref={scrollViewRef}
+                onScroll={handleTelePromptScroll}
+                scrollEventThrottle={16}
+              >
+                {
+                  audioDialogs.map((dialog, idx) => (
+                    <View key={idx}>
+                      <Text style={{ fontWeight: 'bold', fontSize: 30 }}>{dialog.name}:</Text>
+                      <Text style={{ fontSize: 30 }}>{dialog.text}</Text>
+                    </View>
+                  ))
+                }
+              </ScrollView>
+
+              {isRecordingStartIntervalShow && <View style={styles.recordingInterval}>
+                <Text style={{ fontSize: 80, color: "white" }}>{recordingStartInterval !== 0 ? recordingStartInterval : "Start!"}</Text>
+              </View>
+              }
+
+              {!isRecordingStartIntervalShow && <TouchableOpacity
                 style={styles.recordButton}
                 onPress={recording ? stopRecording : startRecording}
               >
@@ -302,6 +370,8 @@ const PlaybackScreen = () => {
                   color="red"
                 />
               </TouchableOpacity>
+              }
+
             </View>
           </Modal>
           {previewVisible && recordedUri && (
@@ -430,6 +500,24 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 10,
+  },
+
+  telePrompt: {
+    position: "absolute",
+    paddingHorizontal: 50,
+    // paddingVertical: 80,
+    alignSelf: "center",
+    height: "70%",
+    overflowY: "hidden"
+  },
+
+  recordingInterval: {
+    position: "absolute",
+    alignSelf: "center",
+    backgroundColor: "#333333aa",
+    width: "100%", height: "100%",
+    flex: 1, alignItems: "center",
+    justifyContent: "center"
   },
 
   recordButtonContainer: {
