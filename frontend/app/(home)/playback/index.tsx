@@ -3,6 +3,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AudioPlayer, useAudioPlayer } from 'expo-audio';
+import { Audio } from 'expo-av';
 import { Button } from 'react-native-paper'; // Ensure react-native-paper is installed
 import { useRouter } from 'expo-router'; // or useNavigation if using React Navigation
 import { useVideoPlayer, VideoView } from 'expo-video'
@@ -14,6 +15,7 @@ import {
   ExpoSpeechRecognitionModule,
   useSpeechRecognitionEvent,
 } from "expo-speech-recognition";
+import stringSimilarity from "string-similarity"
 
 import {
   Alert,
@@ -53,6 +55,7 @@ const PlaybackScreen = () => {
   const [recordingStartInterval, setRecordingStartInterval] = useState(3);
   const [isRecordingStartIntervalShow, setIsRecordingStartIntervalShow] = useState(false);
   const scrollAnimationFrame = useRef<number | null>(null);
+  const [sound, setSound] = useState<Audio.Sound | null>(null);
   const currentScrollY = useRef(0);
 
   useSpeechRecognitionEvent("start", () => {
@@ -66,8 +69,9 @@ const PlaybackScreen = () => {
 
     if (ev.isFinal) {
       transcriptTallyRef.current += temp_transcript;
-      console.log("transcript: ", transcriptTallyRef.current);
+      console.log("final transcript: ", transcriptTallyRef.current);
       setTranscript(transcriptTallyRef.current);
+      playNextAudio(transcriptTallyRef.current);
     } else {
       console.log("transcript: ", transcriptTallyRef.current + temp_transcript);
       setTranscript(transcriptTallyRef.current + temp_transcript);
@@ -90,6 +94,10 @@ const PlaybackScreen = () => {
     isPlaying: videoPlayer.playing,
   });
 
+  const preprocess = (text: string) => {
+    return text.toLowerCase().replace(/[^\w\s]|_/g, "").replace(/\s+/g, " ").trim();
+  }
+
 
   useFocusEffect(
     useCallback(() => {
@@ -102,6 +110,40 @@ const PlaybackScreen = () => {
       loadAudioData();
     }, [])
   );
+
+  useEffect(() => {
+    return () => {
+      if (sound) {
+        sound.unloadAsync();
+      }
+    };
+  }, [sound]);
+
+  const playNextAudio = async (spokenSentence: string, threshold: number = 0.7) => {
+    const dialogs = audioDialogs.filter(dialog => !selectedCharacters.includes(dialog.name))
+    const processedDialogSentences = dialogs.map(dialog => preprocess(dialog.text));
+    const processedSpokenSentence = preprocess(spokenSentence);
+    const { bestMatch } = stringSimilarity.findBestMatch(
+      processedSpokenSentence,
+      processedDialogSentences
+    );
+    if (bestMatch.rating < threshold) {
+      console.warn("Best Match Not Found");
+      return;
+    }
+
+    console.log("best Match: ", bestMatch);
+    const matchedIndex = processedDialogSentences.indexOf(bestMatch.target);
+
+    console.log("index: ", matchedIndex)
+    console.log("dialog: ", dialogs[matchedIndex])
+
+    const nextSentence = audioDialogs.find(dialog => dialog.id === dialogs[matchedIndex].id + 1)
+    console.log("next sentence: ", nextSentence);
+
+    await stopListening();
+    playAudioSequence(nextSentence);
+  }
 
   const startListening = async () => {
     const result = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
@@ -125,10 +167,61 @@ const PlaybackScreen = () => {
 
   const playAudio = async (url: string) => {
     try {
-      const fullUrl = url.startsWith('http') ? url : `${BASE_URL}${url}`;
-      audioPlayer.pause();
-      audioPlayer.replace(fullUrl);
-      audioPlayer.play();
+      // Stop and unload any existing sound
+      if (sound) {
+        await sound.unloadAsync();
+        setSound(null);
+      }
+
+      // Create and play new sound
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        { uri: url.startsWith('http') ? url : `${BASE_URL}${url}` },
+        { shouldPlay: true }
+      );
+
+      setSound(newSound);
+
+      newSound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          console.log('Playback finished');
+        }
+      });
+
+    } catch (error) {
+      console.error('Audio playback error:', error);
+    }
+  };
+
+  const playAudioSequence = async (dialog: any) => {
+    try {
+      // Stop and unload any existing sound
+      if (sound) {
+        await sound.unloadAsync();
+        setSound(null);
+      }
+
+      if (dialog === undefined || !selectedCharacters.includes(dialog.name)) {
+        startListening()
+        return;
+      }
+
+      // Create and play new sound
+      const { sound: newSound } = await Audio.Sound.createAsync(
+        { uri: dialog.audio.startsWith('http') ? dialog.audio : `${BASE_URL}${dialog.audio}` },
+        { shouldPlay: true }
+      );
+
+      setSound(newSound);
+
+      newSound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          console.log("Audio Just Finished");
+          const nextdialog = audioDialogs.find(d => d.id == dialog.id + 1 && selectedCharacters.includes(d.name))
+          console.log("Next Dialog: ", nextdialog)
+          playAudioSequence(nextdialog);
+        }
+      });
+
     } catch (error) {
       console.error('Audio playback error:', error);
     }
